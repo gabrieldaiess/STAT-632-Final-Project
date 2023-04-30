@@ -1,0 +1,117 @@
+---
+title: "STAT 632 Final"
+author: "Gabriel Daiess"
+format: pdf
+editor: source
+---
+
+```{r}
+library(pacman)
+pacman::p_load(tidyverse, dplyr, MASS, car, faraway, corrplot, lmtest)
+```
+
+# Intro/EDA
+
+```{r}
+#load in data
+library(alr4)
+df <- as.data.frame(alr4::water)
+
+#glance at the dataframe
+head(df)
+dim(df)
+
+# Reshape the data into a long format
+df_long <- pivot_longer(df, cols = -Year, names_to = "station", values_to = "precip")
+
+#create df with only the response variables over time for boxplot
+df_viz <- subset(df_long, station != "BSAAM")
+
+#visualize total precip height at each station by year
+ggplot(df_viz, aes(x = Year , y = precip, color = station)) +
+  geom_line()
+
+#visualize boxplot of total precip height for all years by station
+ggplot(df_viz, aes(x = station, y = precip, fill = station)) +
+  geom_boxplot()
+
+```
+
+# Create Initial Model Using All Predictors Available
+
+```{r}
+# create model with BSAAM (surface runoff) as our response and 6 precipitation measuring stations as predictors
+
+lm1 <- lm(BSAAM ~ APMAM + APSAB + APSLAKE + OPBPC + OPRC + OPSLAKE, data = df)
+summary(lm1)
+
+```
+
+The initial model yields a high coefficient of determination, and very high significance overall. Unfortunately, the estimates for APMAM station and APSAB station are negative, which in the context of the data set, does not make sense. Also, the individual t tests for all predictors, aside from OPRC station and OPSLAKE station, are NOT significant in the presence of each other. This initial model sumamry suggests there may be an issue of multicollinearity between predictors. I proceed to check the assumptions for a multiple linear regression for further analysis.
+
+# Multiple Linear Regression Diagnostics for Model 1
+
+```{r}
+# run MLR diagnostics (assume linearity, errors are iid ~ N, constant variance)
+plot(lm1)
+shapiro.test(resid(lm1)) #residuals pass normality p > alpha
+
+# check standardized residuals vs. predictor for each predictor
+plot(df$APMAM, rstandard(lm1), 
+     xlab = "APMAM", ylab = "Standardized Residuals")
+plot(df$APSAB, rstandard(lm1), 
+     xlab = "APSAB", ylab = "Standardized Residuals")
+plot(df$APSLAKE, rstandard(lm1), 
+     xlab = "APSLAKE", ylab = "Standardized Residuals")
+plot(df$OPBPC, rstandard(lm1), 
+     xlab = "OPBPC", ylab = "Standardized Residuals")
+plot(df$OPRC, rstandard(lm1), 
+     xlab = "OPRC", ylab = "Standardized Residuals")
+plot(df$OPSLAKE, rstandard(lm1), 
+     xlab = "OPSLAKE", ylab = "Standardized Residuals")
+
+# Numerical Test for Constant Variance
+bptest(lm1) #fail to reject homoskedasticity, assume variance constant
+
+
+# Identify Outliers and/or High Leverage Points
+
+
+```
+
+Assumptions for MLR are well satisfied by the first model and transformations may not be needed at this point of the analysis. Ultimately, due to the fact that only 2 out of 6 predictors are significant in the presence of each other, I proceed to assess and test for multicollinearity among the predictors.
+
+# Assess Multicolinearity, Select Variables for Model 2
+
+```{r}
+#correlation matrix
+correlation <- round(cor(df[,-df$BSAAM]),2)
+print(correlation)
+
+#correlation plot
+corrplot(correlation, method = "color", type = "lower") #many of the variables are highly correlated
+
+#Variable Inflation Factor
+VIF <- round(vif(lm1), 2)
+print(VIF)
+```
+
+I conclude that the predictors are highly correlated to one another and the data does have multicollinearity. Proceed to step-wise variable selection and create second model.
+
+# Step-Wise Variable Selection and Creating Model 2
+
+```{r}
+#step-wise variable selection
+lm2 <- step(lm1)
+summary(lm2)
+```
+
+# Check Assumptions of MLR for Model 2
+
+```{r}
+plot(lm2)
+shapiro.test(resid(lm2))
+bptest(lm2)
+```
+
+My final model only contains 3 predictor variables, but has an adjusted coefficient of determination = 0.9185 and a p-value of approximately 0, with an F-statistic = 158.9.
