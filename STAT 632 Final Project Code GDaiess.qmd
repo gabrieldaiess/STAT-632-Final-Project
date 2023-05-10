@@ -1,0 +1,161 @@
+---
+title: "STAT 632 Final"
+author: "Gabriel Daiess"
+format: pdf
+editor: source
+---
+
+```{r}
+library(pacman)
+pacman::p_load(tidyverse, dplyr, MASS, car, faraway, corrplot, lmtest)
+```
+
+# Intro/EDA
+
+```{r}
+#load in data
+library(alr4)
+df <- as.data.frame(alr4::water)
+
+#glance at the dataframe
+head(df)
+dim(df)
+
+#Reshape the data into a long format
+df_long <- pivot_longer(df, cols = -Year, names_to = "station", values_to = "precip")
+
+#create df with only the response variables over time for boxplot
+df_viz <- subset(df_long, station != "BSAAM")
+
+#visualize total precip height at each station by year
+ggplot(df_viz, aes(x = Year , y = precip, color = station)) +
+  geom_line() +
+  labs(title = "Annual Precipitation Totals", x = "Year", y = "Precipitation (in)") +
+  theme_bw() +
+  theme(
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 12),
+    panel.grid.major = element_line(color = "grey80"),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_rect(fill = "white")
+  )
+
+
+#visualize boxplot of total precip height for all years by station
+ggplot(df_viz, aes(x = station, y = precip, fill = station)) +
+  geom_boxplot()
+
+#summary stats
+summary(df)
+```
+
+# Create Initial Model Using All Predictors Available
+
+```{r}
+#create model with BSAAM (surface runoff) as our response and 6 precipitation measuring stations as predictors
+
+lm1 <- lm(BSAAM ~ APMAM + APSAB + APSLAKE + OPBPC + OPRC + OPSLAKE, data = df)
+summary(lm1)
+
+```
+
+The initial model yields a high coefficient of determination, and very high significance overall. Unfortunately, the estimates for APMAM station and APSAB station are negative, which in the context of the data set, does not make sense. Also, the individual t tests for all predictors, aside from OPRC station and OPSLAKE station, are NOT significant in the presence of each other. This initial model summary suggests there may be an issue of multicollinearity between predictors. I proceed to check the assumptions for a multiple linear regression for further analysis.
+
+# Multiple Linear Regression Diagnostics for Model 1
+
+```{r}
+#run MLR diagnostics (assume linearity, errors are iid ~ N, constant variance)
+plot(lm1)
+shapiro.test(resid(lm1)) #residuals pass normality p > alpha
+
+#check standardized residuals vs. predictor for each predictor
+plot(df$APMAM, rstandard(lm1), 
+     xlab = "APMAM", ylab = "Standardized Residuals")
+plot(df$APSAB, rstandard(lm1), 
+     xlab = "APSAB", ylab = "Standardized Residuals")
+plot(df$APSLAKE, rstandard(lm1), 
+     xlab = "APSLAKE", ylab = "Standardized Residuals")
+plot(df$OPBPC, rstandard(lm1), 
+     xlab = "OPBPC", ylab = "Standardized Residuals")
+plot(df$OPRC, rstandard(lm1), 
+     xlab = "OPRC", ylab = "Standardized Residuals")
+plot(df$OPSLAKE, rstandard(lm1), 
+     xlab = "OPSLAKE", ylab = "Standardized Residuals")
+
+#Numerical Test for Constant Variance
+bptest(lm1) #fail to reject homoskedasticity, assume variance constant
+
+```
+
+Assumptions for MLR are well satisfied by the first model and transformations may not be needed at this point of the analysis. Ultimately, due to the fact that only 2 out of 6 predictors are significant in the presence of each other, I proceed to assess and test for multicollinearity among the predictors.
+
+# Assess Multicolinearity, Select Variables for Model 2
+
+```{r}
+#scatterplot matrix
+pairs(BSAAM ~ APMAM + APSAB + APSLAKE + OPBPC + OPRC + OPSLAKE, data = df)
+
+#correlation matrix
+correlation <- round(cor(df[,-df$BSAAM]),2)
+print(correlation)
+
+#correlation plot
+corrplot(correlation, method = "color", type = "lower") #many of the variables are highly correlated
+
+#Variable Inflation Factor
+VIF <- round(vif(lm1), 2)
+print(VIF)
+```
+
+I conclude that the predictors are highly correlated to one another and the data does have multicollinearity among the predictor variables. Is there also autocorrelation? 
+
+# Test for Autocorrelation and Interpretation
+```{r}
+#Durbin-Watson Test for Autocorrelated Residuals
+dwtest(lm1)
+```
+The null hypothesis of the Durbin-Watson test in R is that there is no first-order autocorrelation in the residuals of the regression model, i.e., the residuals are independent.
+
+The alternative hypothesis is that there is first-order autocorrelation in the residuals.
+
+From the p-value of the test, I reject the null hypothesis in favor of the alternative and conclude the residuals of the first model have autocorrelation. Assumption of independence is violated and full model cannot be used.
+
+Proceed to step-wise variable selection and create second model.
+
+Use Step and AIC
+
+# Step-Wise Variable Selection and Creating Model 2
+
+```{r}
+#step-wise variable selection
+lm2 <- step(lm1)
+summary(lm2)
+```
+
+# ANOVA
+```{r}
+#confirming that 3 predictors can be removed from full model 1 (all at once) to yield reduced model 2
+
+anova(lm2, lm1)
+```
+My null hypothesis for this ANOVA test is that the estimated $\widehat{\beta}$ values associated with variables APMAM, APSAB, OPBPC and OPSLAKE are equal to one another as zero. My alternative hypothesis is that at least one of the hat values associated with variables APMAM, APSAB, OPBPC and OPSLAKE is different from the others, and not equal to zero. 
+
+Given how large the alpha value is, I fail to reject the null hypothesis and conclude that none of the estimated values at the aforementioned stations are significant and can be removed from the model.
+
+# Check Assumptions of MLR for Model 2
+
+```{r}
+plot(lm2)
+hist(resid(lm2))
+shapiro.test(resid(lm2))
+bptest(lm2)
+summary(lm2)
+```
+
+My final model only contains 3 predictor variables, and has an adjusted coefficient of determination = 0.9185 and a p-value of approximately 0, with an F-statistic = 158.9.
+
+Final Model: 
+$\widehat{Stream Runoff} = 15424.6 + 1712.5(APSLAKE) + 1797.5(OPRC) + 2389.8(OPSLAKE)$
